@@ -1,0 +1,11 @@
+{:lein true
+
+ :dev-http
+ {8000 "target"}
+
+ :builds
+ {:skidder
+  {:target     :browser
+   :output-dir "target/js"
+   :asset-path "/js"
+   :modules    {:main {:entries [g7s.skidder]}}}}}
