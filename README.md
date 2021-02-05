@@ -3,6 +3,15 @@
 ClojureScript drag and drop library.
 
 
+## Installation
+
+[![Clojars Project](https://img.shields.io/clojars/v/g7s/skidder.svg)](https://clojars.org/g7s/skidder)
+
+To install, add the following to your project `:dependencies`:
+
+    [g7s/skidder "0.1.0"]
+
+
 ## Documentation
 
 `skidder` is a system that you can start, stop and listen for changes
