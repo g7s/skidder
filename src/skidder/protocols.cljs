@@ -9,7 +9,7 @@
 
 
 (defprotocol DragSource
-  (ds-type [this] "Return the type of this drag source.")
+  (ds-type [this])
   (can-drag? [this si ds-id] "Return whether this drag source can be dragged.")
   (on-begin-drag [this si ds-id] "Called when the drag begins. The returned value will be available at the drop result.")
   (on-end-drag [this si ds-id]) "Called when the drag ends.")
