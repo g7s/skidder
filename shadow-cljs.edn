@@ -8,4 +8,6 @@
   {:target     :browser
    :output-dir "target/js"
    :asset-path "/js"
-   :modules    {:main {:entries [g7s.skidder]}}}}}
+   :modules    {:base    {:entries [cljs.core skidder.core]}
+                :example {:entries    [skidder.examples.page]
+                          :depends-on #{:base}}}}}}

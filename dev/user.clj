@@ -13,7 +13,7 @@
 <html>
   <head>
     <meta http-equiv='content-type' content='text/html;charset=UTF-8'/>
-    <title>skidder test page</title>
+    <title>Skidder example page</title>
   </head>
 
   <body>

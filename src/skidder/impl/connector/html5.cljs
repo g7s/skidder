@@ -1,44 +1,29 @@
-(ns g7s.skidder.impl.connector.html5
+(ns skidder.impl.connector.html5
   (:require
    [goog.userAgent.product :as product]
    [clojure.set :as set]
    [clojure.string :as str]
-   [g7s.skidder.utils :as utils]
-   [g7s.skidder.protocols :as p]
-   [g7s.skidder.impl :refer [new-nds is-nds?]]))
+   [skidder.utils :as utils]
+   [skidder.protocols :as p]
+   [skidder.impl :refer [new-nds is-nds?]]))
 
 
-(defprotocol EnterLeaveTracker
-  (enter-node [this node] "Return whether the node is the first to enter.")
-  (leave-node [this node] "Return whether the node is the last to leave.")
-  (reset-all [this]))
+(defprotocol PHTML5Connector
+  (alt-pressed? [this])
+  (is-native-drag? [this])
+  (begin-native-drag! [this ntype])
+  (end-native-drag! [this])
+  (init-current-drag! [this ds-id])
+  (clear-current-drag! [this]))
 
 
-(deftype HTML5EnterLeaveTracker [enters node-in-doc?]
-  EnterLeaveTracker
-  (enter-node [this node]
-    ;; When we enter a `node` the `enters` consist of
-    ;; the ancestry of `node` plus the `node` itself
-    (let [prev-len   (count @enters)
-          new-enters (set/union (into #{} (filter #(and (node-in-doc? %)
-                                                        (or (not (.-contains %))
-                                                            (.contains % node)))
-                                                  @enters))
-                                #{node})]
-      (vreset! enters new-enters)
-      (and (= prev-len 0) (> (count new-enters) 0))))
-  (leave-node [this node]
-    (let [prev-len   (count @enters)
-          new-enters (set/difference (into #{} (filter node-in-doc? @enters))
-                                     #{node})]
-      (vreset! enters new-enters)
-      (and (> prev-len 0) (= (count new-enters) 0))))
-  (reset-all [this] (vreset! enters #{})))
-
-
-(defn new-tracker
-  [node-in-doc?]
-  (HTML5EnterLeaveTracker. (volatile! #{}) node-in-doc?))
+(defn- conj<
+  [v e]
+  (if-not (= e (peek v))
+    (if (nil? v)
+      [e]
+      (conj v e))
+    v))
 
 
 (defn- set-drag-image?
@@ -72,8 +57,7 @@
 
   (defn create-listeners
     [connector]
-    (into {} (for [[kw v] @handlers]
-               [kw (update v :fn #(partial % connector))]))))
+    (into {} (for [[kw v] @handlers] [kw (update v :fn #(partial % connector))]))))
 
 
 (defn add-event-listener
@@ -98,23 +82,21 @@
     (remove-event-listener node listener)))
 
 
-(defprotocol PHTML5Connector
-  (alt-pressed? [this])
-  (is-native-drag? [this])
-  (begin-native-drag! [this ntype])
-  (end-native-drag! [this])
-  (init-current-drag! [this ds-id])
-  (clear-current-drag! [this]))
-
-
 (defn- reset-hids!
   [connector]
-  (vreset! (.-hids connector) #{}))
+  (vreset! (.-hids connector) []))
 
 
-(defn- reset-lids!
+(defn- enters
   [connector]
-  (vreset! (.-lids connector) #{}))
+  (.-enters connector))
+
+
+(defn- reset-enters!
+  ([connector]
+   (reset-enters! connector #{}))
+  ([connector value]
+   (set! (.-enters connector) value)))
 
 
 (defn- set-drop-effect!
@@ -229,26 +211,26 @@
 
 (defcapture :top-dragend
   (fn [connector e]
-    (when (clear-current-drag! connector)
-      (p/end-drag! (.-sa connector) {}))))
+    (let [sa (.-sa connector)]
+      (p/leave! sa (enters connector) #{})
+      (when (clear-current-drag! connector)
+        (p/end-drag! sa {})))))
 
 
 (defcapture :top-dragenter
   (fn [connector e]
     (reset-hids! connector)
-    (let [si           (.-si connector)
-          first-enter? (enter-node (.-tracker connector) (.-target e))]
-      (when (and first-enter? (not (p/dragging? si)))
-        (when-let [ntype (and (is-native-drag? connector)
-                              (utils/find-native-type (.-dataTransfer e)))]
-          ;; A native drag came in from outside of the window
-          (begin-native-drag! connector ntype))))))
+    (when-let [ntype (and (not (p/dragging? (.-si connector)))
+                          (is-native-drag? connector)
+                          (utils/find-native-type (.-dataTransfer e)))]
+      ;; A native drag came in from outside of the window
+      (begin-native-drag! connector ntype))))
 
 
 (defbubble :dragenter
   (fn [connector dt-id]
     (fn [e]
-      (vswap! (.-hids connector) conj dt-id))))
+      (vswap! (.-hids connector) conj< dt-id))))
 
 
 (defbubble :top-dragenter
@@ -260,11 +242,15 @@
       (reset-hids! connector)
       (when (p/dragging? si)
         (set! (.-__alt connector) (.-altKey e))
-        (when-not product/FIREFOX
-          (p/hover! sa hids {:pointer-offset (utils/ev-client-offset e)}))
-        (when (can-drop-here? connector hids)
-          (.preventDefault e)
-          (set-drop-effect! datat (get-drop-effect connector)))))))
+        (let [old-enters (enters connector)
+              new-enters (p/enter! sa hids old-enters {:pointer-offset (utils/ev-client-offset e)})]
+          (p/leave! sa old-enters new-enters)
+          (reset-enters! connector new-enters)
+          (when-not product/FIREFOX
+            (p/hover! sa hids {:pointer-offset (utils/ev-client-offset e)}))
+          (when (can-drop-here? connector new-enters)
+            (.preventDefault e)
+            (set-drop-effect! datat (get-drop-effect connector))))))))
 
 
 (defcapture :top-dragover
@@ -275,7 +261,7 @@
 (defbubble :dragover
   (fn [connector dt-id]
     (fn [e]
-      (vswap! (.-hids connector) conj dt-id))))
+      (vswap! (.-hids connector) conj< dt-id))))
 
 
 (defbubble :top-dragover
@@ -290,37 +276,22 @@
         (set-drop-effect! datat "none")
         (do
           (set! (.-__alt connector) (.-altKey e))
-          (p/hover! sa hids {:pointer-offset (utils/ev-client-offset e)})
-          (if (can-drop-here? connector hids)
+          (if (can-drop-here? connector
+                              (p/hover! sa hids {:pointer-offset (utils/ev-client-offset e)}))
             (set-drop-effect! datat (get-drop-effect connector))
             (set-drop-effect! datat "none")))))))
 
 
 (defcapture :top-dragleave
   (fn [connector e]
-    (reset-lids! connector)
+    (reset-hids! connector)
     (let [datat (.-dataTransfer e)
           ntype (and (is-native-drag? connector)
                      (utils/find-native-type datat))]
       (when ntype
         (.preventDefault e))
-      (when (and (leave-node (.-tracker connector) (.-target e))
-                 ntype)
+      (when (and (empty? (enters connector)) ntype)
         (end-native-drag! connector)))))
-
-
-(defbubble :dragleave
-  (fn [connector dt-id]
-    (fn [e]
-      (vswap! (.-lids connector) conj dt-id))))
-
-
-(defbubble :top-dragleave
-  (fn [connector e]
-    (let [lids @(.-lids connector)]
-      (reset-lids! connector)
-      (.preventDefault e)
-      (p/leave! (.-sa connector) lids {:pointer-offset (utils/ev-client-offset e)}))))
 
 
 (defcapture :top-drop
@@ -330,16 +301,15 @@
       (let [si     (.-si connector)
             nds-id (first (p/dragging-ids si))
             nds    (p/get-ds (p/ds-reg si) nds-id)]
-        (p/set-drag-data! (.-sa connector) nds-id (p/read-drag-data nds (.-dataTransfer e)))))
-    (reset-all (.-tracker connector))))
+        (p/set-drag-data! (.-sa connector) nds-id (p/read-drag-data nds (.-dataTransfer e)))))))
 
 
 (defbubble :top-drop
   (fn [connector e]
     (let [si (.-si connector)
           sa (.-sa connector)]
-      (p/hover! sa (p/dropping-ids si) {})
       (p/drop! sa {})
+      (p/leave! sa (enters connector) #{})
       (if (is-native-drag? connector)
         (end-native-drag! connector)
         (end-drag-when-removed-from-dom connector)))))
@@ -359,7 +329,6 @@
    :top-dragover-capture
    :top-dragover
    :top-dragleave-capture
-   :top-dragleave
    :top-drop-capture
    :top-drop])
 
@@ -375,7 +344,7 @@
 ;;; mdspn is a map of ds-id to [dspn opts]
 ;;; __ds-id the current dragging ds-id
 
-(deftype HTML5Connector [si sa tracker options listeners hids lids mdsn mdspn
+(deftype HTML5Connector [si sa enters options listeners hids mdsn mdspn
                          ^:mutable __alt
                          ^:mutable __ds-id
                          ^:mutable __mm-timer]
@@ -413,7 +382,7 @@
             (remove-event-listener window (:end-drag-when-removed-from-dom-capture @listeners)))
           (set! __mm-timer nil)
           (reset-hids! this)
-          (reset-lids! this)
+          (reset-enters! this)
           true)
         false))
   p/Connector
@@ -447,35 +416,28 @@
     (p/connect-dt this id node {}))
   (connect-dt [this id node options]
     (let [dragenter-listener (update (:dragenter @listeners) :fn (fn [f] (f id)))
-          dragover-listener  (update (:dragover @listeners) :fn (fn [f] (f id)))
-          dragleave-listener (update (:dragleave @listeners) :fn (fn [f] (f id)))]
+          dragover-listener  (update (:dragover @listeners) :fn (fn [f] (f id)))]
       (add-event-listener node dragenter-listener)
       (add-event-listener node dragover-listener)
-      (add-event-listener node dragleave-listener)
       (fn []
         (remove-event-listener node dragenter-listener)
-        (remove-event-listener node dragover-listener)
-        (remove-event-listener node dragleave-listener)))))
+        (remove-event-listener node dragover-listener)))))
 
 
 (defn new-html5-connector
   ([si sa]
    (new-html5-connector si sa {}))
   ([si sa opts]
-   (let [connector (HTML5Connector. si
-                                    sa
-                                    nil
-                                    (merge {:window   js/window
-                                            :document js/document}
-                                           opts)
-                                    (volatile! nil)
-                                    (volatile! nil)
-                                    (volatile! nil)
-                                    (volatile! nil)
-                                    (volatile! nil)
-                                    nil
-                                    nil
-                                    nil)
-         tracker   (new-tracker (partial node-in-doc? connector))]
-     (set! (.-tracker connector) tracker)
-     connector)))
+   (HTML5Connector. si
+                    sa
+                    #{}
+                    (merge {:window   js/window
+                            :document js/document}
+                           opts)
+                    (volatile! nil)
+                    (volatile! nil)
+                    (volatile! nil)
+                    (volatile! nil)
+                    nil
+                    nil
+                    nil)))

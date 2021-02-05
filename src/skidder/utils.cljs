@@ -1,9 +1,9 @@
-(ns g7s.skidder.utils
+(ns skidder.utils
   (:require
    [goog.userAgent.product :as product]
    [goog.dom :as gdom]
    [clojure.string :as str]
-   [g7s.skidder.protocols :as p])
+   [skidder.protocols :as p])
   (:import
    (goog.math.interpolator Linear1)))
 
@@ -31,10 +31,8 @@
   (let [is-img (img-node? dspn)
         ds-w   (.-offsetWidth dsn)
         ds-h   (.-offsetHeight dsn)
-        dspn-w (if is-img (cond-> (.-width dspn)
-                            product/SAFARI (/ (gdom/getPixelRatio))) ds-w)
-        dspn-h (if is-img (cond-> (.-height dspn)
-                            product/SAFARI (/ (gdom/getPixelRatio))) ds-h)
+        dspn-w (if is-img (cond-> (.-width dspn) product/SAFARI (/ (gdom/getPixelRatio))) ds-w)
+        dspn-h (if is-img (cond-> (.-height dspn) product/SAFARI (/ (gdom/getPixelRatio))) ds-h)
         odiff  (p/difference client-offset (node-client-offset (if is-img dsn dspn)))
         cofs-x (fn []
                  (let [odiff-x (p/coord-x odiff)
@@ -50,7 +48,8 @@
                                               (* dspn-h (/ odiff-y ds-h))
                                               (- (+ odiff-y dspn-h) ds-h)])]
                    (cond-> (.interpolate interp (p/coord-y anchor))
-                     (and is-img product/SAFARI) (+ (* (dec (gdom/getPixelRatio)) dspn-h)))))]
+                     (and is-img product/SAFARI)
+                     (+ (* (dec (gdom/getPixelRatio)) dspn-h)))))]
     [(if-some [ofs-x (p/coord-x offset)] ofs-x (cofs-x))
      (if-some [ofs-y (p/coord-y offset)] ofs-y (cofs-y))]))
 

@@ -1,8 +1,8 @@
-(ns g7s.skidder
+(ns skidder.core
   (:require
-   [g7s.skidder.protocols :as p]
-   [g7s.skidder.impl :as impl]
-   [g7s.skidder.impl.connector.html5 :refer [new-html5-connector]]))
+   [skidder.protocols :as p]
+   [skidder.impl :as impl]
+   [skidder.impl.connector.html5 :refer [new-html5-connector]]))
 
 
 (def ^:private initial-dnd-state
