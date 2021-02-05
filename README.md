@@ -13,7 +13,6 @@ ClojureScript drag and drop library.
   (:require
    [skidder.core :as skidder]))
 
-
 (skidder/start! :html5)
 
 ```
